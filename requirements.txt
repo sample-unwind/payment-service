@@ -8,3 +8,5 @@ httpx
 python-multipart
 grpcio
 grpcio-tools
+grpcio-reflection
+pika
