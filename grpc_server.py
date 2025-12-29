@@ -1,5 +1,5 @@
-from concurrent import futures
 import logging
+from concurrent import futures
 
 import grpc
 from grpc_reflection.v1alpha import reflection

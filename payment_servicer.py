@@ -1,5 +1,5 @@
-import uuid
 import logging
+import uuid
 
 import payment_pb2
 import payment_pb2_grpc
