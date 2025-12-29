@@ -20,7 +20,7 @@ class PaymentProcessedEvent:
 class PaymentEventPublisher:
     def __init__(self) -> None:
         self.host = os.getenv("RABBITMQ_HOST")
-        self.port = int(os.getenv("RABBITMQ_PORT"))
+        self.port = os.getenv("RABBITMQ_PORT")
         self.user = os.getenv("RABBITMQ_USER")
         self.password = os.getenv("RABBITMQ_PASSWORD")
 
