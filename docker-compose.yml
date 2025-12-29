@@ -21,8 +21,8 @@ services:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBIT_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
 
   app:
     build:
@@ -46,6 +46,7 @@ services:
       - "50051:50051"
     depends_on:
       - postgres
+      - rabbitmq
 
 volumes:
   postgres_data:
