@@ -7,7 +7,6 @@ Implements the PaymentService gRPC interface with:
 - RefundPayment: Process refund for a previous payment
 """
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
@@ -16,16 +15,9 @@ import grpc
 
 import payment_pb2
 import payment_pb2_grpc
-from db import DEFAULT_TENANT_ID, get_db_context_with_tenant, set_tenant_id
+from db import DEFAULT_TENANT_ID, get_db_context_with_tenant
 from models import PaymentModel, PaymentStatus
 from publisher import PaymentEventPublisher
-from reservation_client import (
-    ReservationClient,
-    ReservationClientError,
-    ReservationNotFoundError,
-    ReservationServiceUnavailableError,
-    ReservationValidationError,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -42,31 +34,16 @@ ERROR_CODES = {
 }
 
 
-def run_async(coro):
-    """Helper to run async code in sync gRPC handlers.
-
-    Creates a new event loop for each call to avoid conflicts with
-    the main uvicorn event loop running in a different thread.
-    """
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
 class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
     """
     gRPC servicer for payment operations.
 
     Handles payment processing, status queries, and refunds.
-    Integrates with reservation-service for amount validation.
     """
 
     def __init__(self):
         """Initialize the servicer with dependencies."""
         self.publisher = PaymentEventPublisher()
-        self.reservation_client = ReservationClient()
         logger.info("PaymentServicer initialized")
 
     def ProcessPayment(
@@ -131,47 +108,9 @@ class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
 
         currency = request.currency or "EUR"
 
-        # Validate amount against reservation
-        try:
-            reservation_info = run_async(
-                self.reservation_client.validate_payment_amount(
-                    reservation_id=request.reservation_id,
-                    amount=request.amount,
-                    tenant_id=request.tenant_id,
-                )
-            )
-        except ReservationNotFoundError as e:
-            logger.warning(f"Reservation not found: {e}")
-            return payment_pb2.PaymentResponse(
-                success=False,
-                transaction_id="",
-                message=str(e),
-                error_code=ERROR_CODES["RESERVATION_NOT_FOUND"],
-            )
-        except ReservationValidationError as e:
-            logger.warning(f"Amount validation failed: {e}")
-            return payment_pb2.PaymentResponse(
-                success=False,
-                transaction_id="",
-                message=str(e),
-                error_code=ERROR_CODES["AMOUNT_MISMATCH"],
-            )
-        except ReservationServiceUnavailableError as e:
-            logger.error(f"Reservation service unavailable: {e}")
-            return payment_pb2.PaymentResponse(
-                success=False,
-                transaction_id="",
-                message="Reservation service is temporarily unavailable",
-                error_code=ERROR_CODES["RESERVATION_SERVICE_UNAVAILABLE"],
-            )
-        except ReservationClientError as e:
-            logger.error(f"Reservation client error: {e}")
-            return payment_pb2.PaymentResponse(
-                success=False,
-                transaction_id="",
-                message=f"Failed to validate reservation: {e}",
-                error_code=ERROR_CODES["INTERNAL_ERROR"],
-            )
+        # NOTE: We trust the amount from reservation-service (the caller).
+        # Calling back to validate would cause a circular dependency deadlock
+        # since reservation-service is blocked waiting for our gRPC response.
 
         # Create payment record
         transaction_id = uuid4()
@@ -190,35 +129,14 @@ class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
                 db.add(payment)
                 db.flush()  # Get the ID before commit
 
-                # Try to confirm reservation
-                try:
-                    run_async(
-                        self.reservation_client.confirm_reservation(
-                            reservation_id=request.reservation_id,
-                            transaction_id=str(transaction_id),
-                            tenant_id=request.tenant_id,
-                        )
-                    )
-                    # Mark payment as completed
-                    payment.status = PaymentStatus.COMPLETED.value
-                    logger.info(
-                        f"Payment completed: transaction_id={transaction_id}, "
-                        f"reservation_id={request.reservation_id}"
-                    )
-                except ReservationClientError as e:
-                    # Mark payment as failed if confirmation fails
-                    payment.status = PaymentStatus.FAILED.value
-                    payment.error_message = f"Failed to confirm reservation: {e}"
-                    logger.error(
-                        f"Failed to confirm reservation, payment marked as failed: {e}"
-                    )
-                    db.commit()
-                    return payment_pb2.PaymentResponse(
-                        success=False,
-                        transaction_id=str(transaction_id),
-                        message=f"Payment recorded but reservation confirmation failed: {e}",
-                        error_code=ERROR_CODES["INTERNAL_ERROR"],
-                    )
+                # NOTE: We don't call reservation-service to confirm here.
+                # Reservation-service handles its own state after getting our response.
+                # Calling back would cause a circular dependency deadlock.
+                payment.status = PaymentStatus.COMPLETED.value
+                logger.info(
+                    f"Payment completed: transaction_id={transaction_id}, "
+                    f"reservation_id={request.reservation_id}"
+                )
 
                 # Commit the completed payment
                 db.commit()
