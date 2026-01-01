@@ -43,13 +43,16 @@ ERROR_CODES = {
 
 
 def run_async(coro):
-    """Helper to run async code in sync gRPC handlers."""
+    """Helper to run async code in sync gRPC handlers.
+
+    Creates a new event loop for each call to avoid conflicts with
+    the main uvicorn event loop running in a different thread.
+    """
+    loop = asyncio.new_event_loop()
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
