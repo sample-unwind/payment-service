@@ -16,7 +16,7 @@ service:
 # gRPC UI sidecar configuration
 grpcui:
   enabled: true
-  image: fullstorydev/grpcui:1.4.3
+  image: fullstorydev/grpcui:v1.4.3
   port: 8080
   resources:
     limits:
