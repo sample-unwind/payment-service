@@ -26,6 +26,9 @@ spec:
           ports:
             - containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
+            - containerPort: 50051
+              protocol: TCP
+              name: grpc
           env:
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
@@ -48,3 +51,19 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        {{- if .Values.grpcui.enabled }}
+        - name: grpcui
+          image: "{{ .Values.grpcui.image }}"
+          args:
+            - "-connect-fail-fast=false"
+            - "-plaintext"
+            - "localhost:50051"
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+              name: grpcui
+          {{- with .Values.grpcui.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
