@@ -16,7 +16,7 @@ import grpc
 
 import payment_pb2
 import payment_pb2_grpc
-from db import get_db_context
+from db import DEFAULT_TENANT_ID, get_db_context_with_tenant, set_tenant_id
 from models import PaymentModel, PaymentStatus
 from publisher import PaymentEventPublisher
 from reservation_client import (
@@ -183,7 +183,7 @@ class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
         )
 
         try:
-            with get_db_context() as db:
+            with get_db_context_with_tenant(request.tenant_id) as db:
                 db.add(payment)
                 db.flush()  # Get the ID before commit
 
@@ -280,7 +280,9 @@ class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
             )
 
         try:
-            with get_db_context() as db:
+            # Note: GetPaymentStatus doesn't have tenant_id in request,
+            # so we use default. The transaction_id query is unique anyway.
+            with get_db_context_with_tenant(DEFAULT_TENANT_ID) as db:
                 payment = (
                     db.query(PaymentModel)
                     .filter(PaymentModel.transaction_id == UUID(request.transaction_id))
@@ -382,7 +384,7 @@ class PaymentServicer(payment_pb2_grpc.PaymentServiceServicer):
             )
 
         try:
-            with get_db_context() as db:
+            with get_db_context_with_tenant(request.tenant_id) as db:
                 # Find the original payment
                 payment = (
                     db.query(PaymentModel)
