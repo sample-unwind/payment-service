@@ -19,10 +19,13 @@ import payment_pb2_grpc
 from db import get_db_context
 from models import PaymentModel, PaymentStatus
 from publisher import PaymentEventPublisher
-from reservation_client import (ReservationClient, ReservationClientError,
-                                ReservationNotFoundError,
-                                ReservationServiceUnavailableError,
-                                ReservationValidationError)
+from reservation_client import (
+    ReservationClient,
+    ReservationClientError,
+    ReservationNotFoundError,
+    ReservationServiceUnavailableError,
+    ReservationValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
