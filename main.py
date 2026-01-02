@@ -5,12 +5,14 @@ FastAPI application with gRPC server for payment processing.
 """
 
 import logging
+import os
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from keycloak import KeycloakOpenID
 
 from db import check_db_connection, init_db
 from grpc_server import serve as grpc_serve
@@ -114,6 +116,55 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =============================================================================
+# Keycloak Configuration
+# =============================================================================
+
+KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "https://keycloak.parkora.crn.si/auth/")
+KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "parkora")
+KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "backend-services")
+KEYCLOAK_CLIENT_SECRET = os.getenv("KEYCLOAK_CLIENT_SECRET")
+
+keycloak_openid = KeycloakOpenID(
+    server_url=KEYCLOAK_URL,
+    client_id=KEYCLOAK_CLIENT_ID,
+    realm_name=KEYCLOAK_REALM,
+    client_secret_key=KEYCLOAK_CLIENT_SECRET,
+)
+
+# =============================================================================
+# Authentication Helpers
+# =============================================================================
+
+
+def get_current_user(request: Request) -> dict | None:
+    """Extract and verify JWT token from Authorization header."""
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.split(" ")[1]
+    try:
+        token_info = keycloak_openid.introspect(token)
+        if not token_info.get("active", False):
+            return None
+        return token_info
+    except Exception as e:
+        logger.warning(f"Token verification failed: {e}")
+        return None
+
+
+def require_auth(request: Request) -> dict:
+    """Dependency to require authentication. Use with Depends(require_auth)."""
+    current_user = get_current_user(request)
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return current_user
 
 
 @app.on_event("startup")
